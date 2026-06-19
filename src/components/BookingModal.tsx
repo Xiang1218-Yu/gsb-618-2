@@ -43,6 +43,11 @@ export default function BookingModal({ room, bed, onClose, onSuccess }: BookingM
       setError('请输入联系电话');
       return;
     }
+    // 手机号格式校验：中国大陆11位手机号，1开头，第二位3-9
+    if (!/^1[3-9]\d{9}$/.test(phone.trim())) {
+      setError('请输入正确的11位手机号');
+      return;
+    }
     if (checkInDate >= checkOutDate) {
       setError('退房日期必须晚于入住日期');
       return;

@@ -1,19 +1,57 @@
+import { useMemo } from 'react';
 import { useStore } from '@/store/useStore';
 import { Building2, UserCheck, UserX, BedDouble } from 'lucide-react';
+
+/**
+ * 判断预订在指定日期是否有效（入住<=日期<退房，且未取消）
+ * 逻辑与 store 中一致，在组件内计算以避免 selector 返回新对象导致重渲染循环
+ */
+function isBookingActiveOnDate(
+  booking: { checkInDate: string; checkOutDate: string; status: string },
+  dateStr: string
+): boolean {
+  if (booking.status === 'cancelled') return false;
+  return booking.checkInDate <= dateStr && dateStr < booking.checkOutDate;
+}
 
 /**
  * 管理端统计卡片组件 - 展示今日核心数据
  */
 export default function AdminStats() {
-  const stats = useStore((s) => s.getTodayStats());
-  const occupancyRate = stats.totalBeds > 0 ? Math.round((stats.occupiedBeds / stats.totalBeds) * 100) : 0;
+  // 通过 selector 获取原始数据（稳定引用），在组件内 useMemo 计算统计值
+  // 不要在 selector 中调用返回新对象的方法（如 getTodayStats()），否则每次渲染返回新对象会导致无限循环
+  const rooms = useStore((s) => s.rooms);
+  const beds = useStore((s) => s.beds);
+  const bookings = useStore((s) => s.bookings);
+  const selectedDate = useStore((s) => s.selectedDate);
+
+  const stats = useMemo(() => {
+    const today = selectedDate;
+    const todayCheckIn = bookings.filter(
+      (b) => b.status !== 'cancelled' && b.checkInDate === today
+    ).length;
+    const todayCheckOut = bookings.filter(
+      (b) => b.status !== 'cancelled' && b.checkOutDate === today
+    ).length;
+    const occupiedBeds = bookings.filter((b) => isBookingActiveOnDate(b, today)).length;
+    return {
+      totalRooms: rooms.length,
+      todayCheckIn,
+      todayCheckOut,
+      occupiedBeds,
+      totalBeds: beds.length,
+    };
+  }, [rooms, beds, bookings, selectedDate]);
+
+  const occupancyRate = stats.totalBeds > 0
+    ? Math.round((stats.occupiedBeds / stats.totalBeds) * 100)
+    : 0;
 
   const cards = [
     {
       label: '总房间数',
       value: stats.totalRooms,
       icon: Building2,
-      color: 'from-violet-500 to-purple-600',
       bgColor: 'bg-violet-50',
       textColor: 'text-violet-600',
     },
@@ -21,7 +59,6 @@ export default function AdminStats() {
       label: '今日入住',
       value: stats.todayCheckIn,
       icon: UserCheck,
-      color: 'from-emerald-500 to-green-600',
       bgColor: 'bg-emerald-50',
       textColor: 'text-emerald-600',
     },
@@ -29,7 +66,6 @@ export default function AdminStats() {
       label: '今日退房',
       value: stats.todayCheckOut,
       icon: UserX,
-      color: 'from-amber-500 to-orange-600',
       bgColor: 'bg-amber-50',
       textColor: 'text-amber-600',
     },
@@ -38,7 +74,6 @@ export default function AdminStats() {
       value: `${occupancyRate}%`,
       sub: `${stats.occupiedBeds}/${stats.totalBeds}床`,
       icon: BedDouble,
-      color: 'from-[#E86A33] to-[#d45a28]',
       bgColor: 'bg-orange-50',
       textColor: 'text-[#E86A33]',
     },
