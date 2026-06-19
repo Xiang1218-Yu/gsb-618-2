@@ -1,4 +1,5 @@
-import { User, Phone, Calendar, X, CheckCircle, LogOut } from 'lucide-react';
+import { useState, useMemo, useEffect } from 'react';
+import { Phone, Calendar, X, CheckCircle, LogOut, ChevronLeft, ChevronRight } from 'lucide-react';
 import type { Booking, Room, Bed } from '../types';
 import { useBookingStore } from '../store/useBookingStore';
 import { formatDate } from '../utils/storage';
@@ -9,6 +10,7 @@ interface GuestListProps {
   beds: Bed[];
   filterStatus?: Booking['status'];
   title: string;
+  pageSize?: number;
 }
 
 // 状态标签映射
@@ -19,14 +21,34 @@ const statusLabels: Record<Booking['status'], { label: string; color: string }> 
   checked_out: { label: '已退房', color: 'bg-gray-100 text-gray-400' },
 };
 
-// 入住名单组件：展示预订记录和入住信息
-export default function GuestList({ bookings, rooms, beds, filterStatus, title }: GuestListProps) {
+// 入住名单组件：展示预订记录和入住信息，支持分页
+export default function GuestList({ bookings, rooms, beds, filterStatus, title, pageSize = 5 }: GuestListProps) {
   const { cancelBooking, checkIn, checkOut } = useBookingStore();
+  const [currentPage, setCurrentPage] = useState(1);
 
   // 过滤预订记录
-  const filteredBookings = filterStatus 
-    ? bookings.filter(b => b.status === filterStatus)
-    : bookings.filter(b => b.status !== 'cancelled' && b.status !== 'checked_out');
+  const filteredBookings = useMemo(() => {
+    let result = bookings;
+    if (filterStatus) {
+      result = bookings.filter(b => b.status === filterStatus);
+    } else {
+      result = bookings.filter(b => b.status !== 'cancelled' && b.status !== 'checked_out');
+    }
+    // 按入住日期倒序排列
+    return result.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }, [bookings, filterStatus]);
+
+  // 分页计算
+  const totalPages = Math.ceil(filteredBookings.length / pageSize);
+  const paginatedBookings = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredBookings.slice(start, start + pageSize);
+  }, [filteredBookings, currentPage, pageSize]);
+
+  // 重置页码到第一页当数据变化时
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [bookings]);
 
   // 获取房间名称
   const getRoomName = (roomId: string) => {
@@ -65,7 +87,7 @@ export default function GuestList({ bookings, rooms, beds, filterStatus, title }
       </div>
 
       <div className="divide-y divide-gray-50">
-        {filteredBookings.map(booking => (
+        {paginatedBookings.map(booking => (
           <div key={booking.id} className="p-4 hover:bg-gray-50 transition-colors">
             <div className="flex items-start justify-between">
               <div className="flex-1">
@@ -108,7 +130,11 @@ export default function GuestList({ bookings, rooms, beds, filterStatus, title }
                       <CheckCircle className="w-4 h-4" />
                     </button>
                     <button
-                      onClick={() => cancelBooking(booking.id)}
+                      onClick={() => {
+                        if (window.confirm(`确定要取消 ${booking.guestName} 的预订吗？`)) {
+                          cancelBooking(booking.id);
+                        }
+                      }}
                       className="p-2 rounded-lg text-red-500 hover:bg-red-50 transition-colors"
                       title="取消预订"
                     >
@@ -130,6 +156,44 @@ export default function GuestList({ bookings, rooms, beds, filterStatus, title }
           </div>
         ))}
       </div>
+
+      {/* 分页控件 */}
+      {totalPages > 1 && (
+        <div className="p-4 border-t border-gray-100 flex items-center justify-between bg-gray-50">
+          <div className="text-sm text-gray-500">
+            第 {currentPage} / {totalPages} 页
+          </div>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+              disabled={currentPage === 1}
+              className="p-2 rounded-lg border border-gray-200 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-white hover:border-gray-300 transition-all"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
+              <button
+                key={page}
+                onClick={() => setCurrentPage(page)}
+                className={`w-8 h-8 rounded-lg text-sm font-medium transition-all ${
+                  page === currentPage
+                    ? 'bg-amber-500 text-white'
+                    : 'border border-gray-200 hover:bg-white hover:border-gray-300'
+                }`}
+              >
+                {page}
+              </button>
+            ))}
+            <button
+              onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+              disabled={currentPage === totalPages}
+              className="p-2 rounded-lg border border-gray-200 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-white hover:border-gray-300 transition-all"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

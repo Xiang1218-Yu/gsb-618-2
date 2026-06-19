@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Room, Bed, Booking, BookingFormData } from '../types';
+import type { Room, Bed, Booking, BookingFormData, Gender, GenderPreference, RoomType } from '../types';
 import { saveRooms, saveBeds, saveBookings, loadRooms, loadBeds, loadBookings, isInitialized, markInitialized, generateId, getTodayString } from '../utils/storage';
 import { initializeData } from '../utils/mockData';
 
@@ -14,6 +14,8 @@ interface BookingState {
   checkOutDate: string;
   currentView: 'booking' | 'admin';
   isLoaded: boolean;
+  guestGender: Gender;
+  genderPreference: GenderPreference;
   
   // 初始化数据
   initData: () => void;
@@ -32,8 +34,15 @@ interface BookingState {
   // 切换视图
   setCurrentView: (view: 'booking' | 'admin') => void;
   
+  // 设置旅客性别和偏好
+  setGuestGender: (gender: Gender) => void;
+  setGenderPreference: (preference: GenderPreference) => void;
+  
+  // 校验性别与房型是否匹配
+  validateGenderRoomMatch: (gender: Gender, roomType: RoomType) => { valid: boolean; message: string };
+  
   // 创建预订
-  createBooking: (formData: BookingFormData) => boolean;
+  createBooking: (formData: BookingFormData) => { success: boolean; message: string };
   
   // 取消预订
   cancelBooking: (bookingId: string) => void;
@@ -62,6 +71,8 @@ export const useBookingStore = create<BookingState>((set, get) => ({
   })(),
   currentView: 'booking',
   isLoaded: false,
+  guestGender: 'male',
+  genderPreference: 'male_only',
   
   // 初始化数据：从本地存储加载或创建初始数据
   initData: () => {
@@ -135,11 +146,54 @@ export const useBookingStore = create<BookingState>((set, get) => ({
     set({ currentView: view, selectedRoomId: null, selectedBeds: [] });
   },
   
+  // 设置旅客性别，自动更新拼房偏好
+  setGuestGender: (gender: Gender) => {
+    const newPreference: GenderPreference = gender === 'male' ? 'male_only' : 'female_only';
+    set({ guestGender: gender, genderPreference: newPreference });
+  },
+  
+  // 设置拼房偏好
+  setGenderPreference: (preference: GenderPreference) => {
+    set({ genderPreference: preference });
+  },
+  
+  // 校验性别与房型是否匹配
+  validateGenderRoomMatch: (gender: Gender, roomType: RoomType) => {
+    if (roomType === 'private' || roomType === 'dorm_mixed') {
+      return { valid: true, message: '' };
+    }
+    if (roomType === 'dorm_male' && gender === 'female') {
+      return { valid: false, message: '女生不能预订男生间，请选择女生间或混住间' };
+    }
+    if (roomType === 'dorm_female' && gender === 'male') {
+      return { valid: false, message: '男生不能预订女生间，请选择男生间或混住间' };
+    }
+    return { valid: true, message: '' };
+  },
+  
   // 创建预订
   createBooking: (formData: BookingFormData) => {
-    const { selectedBeds, rooms, beds, bookings, checkInDate, checkOutDate } = get();
+    const { selectedBeds, rooms, beds, bookings, checkInDate, checkOutDate, validateGenderRoomMatch } = get();
     
-    if (selectedBeds.length === 0) return false;
+    if (selectedBeds.length === 0) {
+      return { success: false, message: '请先选择床位' };
+    }
+    
+    // 校验每个床位对应的房间性别匹配
+    for (const bedId of selectedBeds) {
+      const bed = beds.find(b => b.id === bedId);
+      if (!bed || bed.status !== 'available') {
+        return { success: false, message: '所选床位不可用，请重新选择' };
+      }
+      const room = rooms.find(r => r.id === bed.roomId);
+      if (!room) {
+        return { success: false, message: '房间信息错误' };
+      }
+      const validation = validateGenderRoomMatch(formData.gender, room.type);
+      if (!validation.valid) {
+        return { success: false, message: validation.message };
+      }
+    }
     
     const newBookings: Booking[] = [];
     const updatedBeds = [...beds];
@@ -181,7 +235,7 @@ export const useBookingStore = create<BookingState>((set, get) => ({
     saveBeds(updatedBeds);
     saveBookings(allBookings);
     
-    return true;
+    return { success: true, message: '预订成功！' };
   },
   
   // 取消预订

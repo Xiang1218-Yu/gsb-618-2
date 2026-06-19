@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { User, Phone, Users, CheckCircle, X, Sparkles } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { User, Phone, Users, CheckCircle, X, Sparkles, AlertCircle } from 'lucide-react';
 import { useBookingStore } from '../store/useBookingStore';
 import type { Gender, GenderPreference, BookingFormData } from '../types';
 
@@ -9,18 +9,31 @@ interface BookingFormProps {
 
 // 预订表单组件：填写入住人信息并提交预订
 export default function BookingForm({ onSuccess }: BookingFormProps) {
-  const { selectedBeds, rooms, beds, createBooking, clearSelectedBeds } = useBookingStore();
+  const { 
+    selectedBeds, rooms, beds, createBooking, clearSelectedBeds,
+    guestGender, genderPreference, setGuestGender, setGenderPreference
+  } = useBookingStore();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
+  const [submitError, setSubmitError] = useState('');
   const [formData, setFormData] = useState<BookingFormData>({
     guestName: '',
-    gender: 'male',
+    gender: guestGender,
     phone: '',
     checkIn: '',
     checkOut: '',
-    genderPreference: 'any',
+    genderPreference: genderPreference,
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
+
+  // 同步全局性别和偏好到表单
+  useEffect(() => {
+    setFormData(prev => ({
+      ...prev,
+      gender: guestGender,
+      genderPreference: genderPreference,
+    }));
+  }, [guestGender, genderPreference]);
 
   // 获取选中床位的总价格
   const getTotalPrice = () => {
@@ -60,22 +73,36 @@ export default function BookingForm({ onSuccess }: BookingFormProps) {
     return Object.keys(newErrors).length === 0;
   };
 
+  // 处理性别选择，同时同步全局状态
+  const handleGenderChange = (gender: Gender) => {
+    setFormData({ ...formData, gender });
+    setGuestGender(gender);
+  };
+
+  // 处理性别偏好选择，同时同步全局状态
+  const handlePreferenceChange = (preference: GenderPreference) => {
+    setFormData({ ...formData, genderPreference: preference });
+    setGenderPreference(preference);
+  };
+
   // 提交表单
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setSubmitError('');
+    
     if (selectedBeds.length === 0) return;
     if (!validateForm()) return;
 
     setIsSubmitting(true);
     
     // 模拟提交延迟
-    await new Promise(resolve => setTimeout(resolve, 800));
+    await new Promise(resolve => setTimeout(resolve, 500));
     
-    const success = createBooking(formData);
+    const result = createBooking(formData);
     
     setIsSubmitting(false);
     
-    if (success) {
+    if (result.success) {
       setShowSuccess(true);
       setTimeout(() => {
         setShowSuccess(false);
@@ -89,6 +116,9 @@ export default function BookingForm({ onSuccess }: BookingFormProps) {
         });
         onSuccess?.();
       }, 2000);
+    } else {
+      setSubmitError(result.message);
+      setTimeout(() => setSubmitError(''), 4000);
     }
   };
 
@@ -107,15 +137,23 @@ export default function BookingForm({ onSuccess }: BookingFormProps) {
   }
 
   return (
-    <div className="bg-white rounded-2xl shadow-md overflow-hidden">
+    <div className="relative bg-white rounded-2xl shadow-md overflow-hidden">
       {/* 成功提示 */}
       {showSuccess && (
-        <div className="absolute inset-0 bg-white/95 z-10 flex flex-col items-center justify-center rounded-2xl">
+        <div className="absolute inset-0 bg-white/95 z-20 flex flex-col items-center justify-center rounded-2xl">
           <div className="animate-bounce">
             <CheckCircle className="w-16 h-16 text-green-500" />
           </div>
           <p className="mt-4 text-lg font-bold text-gray-800">预订成功！</p>
           <p className="text-gray-500 text-sm mt-1">您的床位已保留</p>
+        </div>
+      )}
+
+      {/* 提交错误提示 */}
+      {submitError && (
+        <div className="bg-red-50 border-b border-red-200 p-3 flex items-center gap-2 text-red-700 text-sm animate-fade-in">
+          <AlertCircle className="w-4 h-4 flex-shrink-0" />
+          <span>{submitError}</span>
         </div>
       )}
 
@@ -169,15 +207,16 @@ export default function BookingForm({ onSuccess }: BookingFormProps) {
           {errors.guestName && <p className="text-red-500 text-xs mt-1">{errors.guestName}</p>}
         </div>
 
-        {/* 性别选择 */}
+        {/* 性别选择 - 与筛选栏同步 */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1.5">
             您的性别
+            <span className="text-gray-400 font-normal ml-1">（与筛选栏同步）</span>
           </label>
           <div className="grid grid-cols-2 gap-3">
             <button
               type="button"
-              onClick={() => setFormData({ ...formData, gender: 'male' })}
+              onClick={() => handleGenderChange('male')}
               className={`py-2.5 rounded-lg border-2 font-medium transition-all flex items-center justify-center gap-2 ${
                 formData.gender === 'male'
                   ? 'border-blue-400 bg-blue-50 text-blue-700'
@@ -188,7 +227,7 @@ export default function BookingForm({ onSuccess }: BookingFormProps) {
             </button>
             <button
               type="button"
-              onClick={() => setFormData({ ...formData, gender: 'female' })}
+              onClick={() => handleGenderChange('female')}
               className={`py-2.5 rounded-lg border-2 font-medium transition-all flex items-center justify-center gap-2 ${
                 formData.gender === 'female'
                   ? 'border-pink-400 bg-pink-50 text-pink-700'
@@ -222,22 +261,25 @@ export default function BookingForm({ onSuccess }: BookingFormProps) {
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1.5">
             <Users className="w-4 h-4 inline mr-1" />
-            拼房偏好（智能匹配）
+            拼房偏好
           </label>
           <div className="grid grid-cols-3 gap-2">
             {[
-              { value: 'female_only', label: '仅女生', emoji: '👩' },
-              { value: 'any', label: '都可以', emoji: '👥' },
-              { value: 'male_only', label: '仅男生', emoji: '👨' },
+              { value: 'female_only', label: '仅女生', emoji: '👩', disabled: formData.gender === 'male' },
+              { value: 'any', label: '都可以', emoji: '👥', disabled: false },
+              { value: 'male_only', label: '仅男生', emoji: '👨', disabled: formData.gender === 'female' },
             ].map((opt) => (
               <button
                 key={opt.value}
                 type="button"
-                onClick={() => setFormData({ ...formData, genderPreference: opt.value as GenderPreference })}
+                onClick={() => !opt.disabled && handlePreferenceChange(opt.value as GenderPreference)}
+                disabled={opt.disabled}
                 className={`py-2 rounded-lg border-2 text-sm font-medium transition-all ${
-                  formData.genderPreference === opt.value
-                    ? 'border-amber-400 bg-amber-50 text-amber-700'
-                    : 'border-gray-200 text-gray-600 hover:border-gray-300'
+                  opt.disabled
+                    ? 'border-gray-100 bg-gray-50 text-gray-300 cursor-not-allowed'
+                    : formData.genderPreference === opt.value
+                      ? 'border-amber-400 bg-amber-50 text-amber-700'
+                      : 'border-gray-200 text-gray-600 hover:border-gray-300'
                 }`}
               >
                 <span className="mr-1">{opt.emoji}</span>
@@ -245,7 +287,7 @@ export default function BookingForm({ onSuccess }: BookingFormProps) {
               </button>
             ))}
           </div>
-          <p className="text-xs text-gray-400 mt-1.5">系统将根据您的偏好推荐合适的房间和床位</p>
+          <p className="text-xs text-gray-400 mt-1.5">系统将校验您选择的房间与性别是否匹配</p>
         </div>
 
         {/* 提交按钮 */}
