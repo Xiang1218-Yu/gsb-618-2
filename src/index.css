@@ -36,3 +36,7 @@ body {
 .chip {
   @apply inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium;
 }
+/* 通用表单输入样式 */
+.form-input {
+  @apply w-full px-3 py-2.5 rounded-xl border border-forest-100 text-sm bg-white focus:outline-none focus:border-forest-300;
+}

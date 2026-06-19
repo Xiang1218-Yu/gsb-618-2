@@ -154,6 +154,164 @@ export function removeBooking(id: string): void {
   saveBookings(getBookings().filter((b) => b.id !== id));
 }
 
+/** 更新单条预订（按 id 匹配） */
+export function updateBooking(id: string, patch: Partial<Omit<Booking, "id">>): void {
+  const list = getBookings().map((b) => (b.id === id ? { ...b, ...patch } : b));
+  saveBookings(list);
+}
+
+/** 新增单条预订 */
+export function addBooking(booking: Booking): void {
+  saveBookings([...getBookings(), booking]);
+}
+
+// ========= 房间 CRUD =========
+
+/** 保存房间列表 */
+export function saveRooms(rooms: Room[]): void {
+  write(KEYS.rooms, rooms);
+}
+
+/** 保存床位列表 */
+export function saveBeds(beds: Bed[]): void {
+  write(KEYS.beds, beds);
+}
+
+/**
+ * 新增房间：自动按 capacity 创建对应床位
+ * 返回新生成的房间 id
+ */
+export function addRoom(input: Omit<Room, "id">): string {
+  const id = makeId("r");
+  const room: Room = { ...input, id };
+  saveRooms([...getRooms(), room]);
+
+  // 同步生成床位
+  const newBeds: Bed[] = [];
+  for (let i = 1; i <= input.capacity; i++) {
+    newBeds.push({
+      id: `${id}-b${i}`,
+      roomId: id,
+      index: i,
+      position: i % 2 === 0 ? "upper" : "lower",
+    });
+  }
+  saveBeds([...getBeds(), ...newBeds]);
+  return id;
+}
+
+/**
+ * 更新房间：若 capacity 变化，自动同步床位
+ *  - 增加：在末尾追加新床位
+ *  - 减少：先尝试删除"无预订"的尾部床位；若有预订占用则抛出错误
+ */
+export function updateRoom(id: string, patch: Partial<Omit<Room, "id">>): void {
+  const rooms = getRooms();
+  const idx = rooms.findIndex((r) => r.id === id);
+  if (idx < 0) throw new Error("房间不存在");
+  const old = rooms[idx];
+  const next: Room = { ...old, ...patch };
+  rooms[idx] = next;
+  saveRooms(rooms);
+
+  if (typeof patch.capacity === "number" && patch.capacity !== old.capacity) {
+    let beds = getBeds();
+    const roomBeds = beds.filter((b) => b.roomId === id).sort((a, b) => a.index - b.index);
+    const otherBeds = beds.filter((b) => b.roomId !== id);
+
+    if (patch.capacity > old.capacity) {
+      // 追加床位
+      const toAdd: Bed[] = [];
+      for (let i = old.capacity + 1; i <= patch.capacity; i++) {
+        toAdd.push({
+          id: `${id}-b${i}-${Math.random().toString(36).slice(2, 5)}`,
+          roomId: id,
+          index: i,
+          position: i % 2 === 0 ? "upper" : "lower",
+        });
+      }
+      beds = [...otherBeds, ...roomBeds, ...toAdd];
+    } else {
+      // 删除尾部床位（仅删除无预订占用的）
+      const bookings = getBookings();
+      const occupiedBedIds = new Set(bookings.map((bk) => bk.bedId));
+      const removeCount = old.capacity - patch.capacity;
+      const removable = roomBeds.slice(-removeCount);
+      const blocked = removable.find((b) => occupiedBedIds.has(b.id));
+      if (blocked) {
+        // 还原房间容量
+        rooms[idx] = old;
+        saveRooms(rooms);
+        throw new Error(`床位 #${blocked.index} 仍有预订，无法缩减容量`);
+      }
+      const removeIds = new Set(removable.map((b) => b.id));
+      const remained = roomBeds.filter((b) => !removeIds.has(b.id));
+      beds = [...otherBeds, ...remained];
+    }
+    saveBeds(beds);
+  }
+}
+
+/**
+ * 删除房间：会级联删除该房间下的床位与对应预订
+ */
+export function removeRoom(id: string): void {
+  saveRooms(getRooms().filter((r) => r.id !== id));
+  const removedBedIds = new Set(getBeds().filter((b) => b.roomId === id).map((b) => b.id));
+  saveBeds(getBeds().filter((b) => b.roomId !== id));
+  saveBookings(getBookings().filter((bk) => !removedBedIds.has(bk.bedId)));
+}
+
+// ========= 床位 CRUD =========
+
+/** 新增单张床位（追加到房间） */
+export function addBed(roomId: string, position: "upper" | "lower" = "lower"): Bed {
+  const beds = getBeds();
+  const roomBeds = beds.filter((b) => b.roomId === roomId);
+  const maxIndex = roomBeds.reduce((m, b) => Math.max(m, b.index), 0);
+  const bed: Bed = {
+    id: makeId(`${roomId}-b`),
+    roomId,
+    index: maxIndex + 1,
+    position,
+  };
+  saveBeds([...beds, bed]);
+  // 同步房间 capacity
+  const rooms = getRooms();
+  const room = rooms.find((r) => r.id === roomId);
+  if (room) {
+    room.capacity = roomBeds.length + 1;
+    saveRooms(rooms);
+  }
+  return bed;
+}
+
+/** 更新床位（位置/序号） */
+export function updateBed(id: string, patch: Partial<Omit<Bed, "id" | "roomId">>): void {
+  const beds = getBeds().map((b) => (b.id === id ? { ...b, ...patch } : b));
+  saveBeds(beds);
+}
+
+/**
+ * 删除单张床位：若有预订占用则抛出错误
+ */
+export function removeBed(id: string): void {
+  const bookings = getBookings();
+  if (bookings.some((bk) => bk.bedId === id)) {
+    throw new Error("该床位仍有预订，无法删除");
+  }
+  const target = getBeds().find((b) => b.id === id);
+  if (!target) return;
+  saveBeds(getBeds().filter((b) => b.id !== id));
+  // 同步房间 capacity
+  const rooms = getRooms();
+  const room = rooms.find((r) => r.id === target.roomId);
+  if (room) {
+    room.capacity = Math.max(0, room.capacity - 1);
+    saveRooms(rooms);
+  }
+}
+
 // ========= 业务工具 =========
 
 /**
