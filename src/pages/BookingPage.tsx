@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Calendar, CheckCircle, Bed } from 'lucide-react';
+import { Calendar, CheckCircle, Bed, Users, Minus, Plus } from 'lucide-react';
 import { useBookingStore } from '../store/useBookingStore';
 import { roomMatchesFilter } from '../utils/roomMatcher';
 import { calculateNights } from '../utils/date';
@@ -10,7 +10,7 @@ import BedMap from '../components/BedMap';
 import BookingModal from '../components/BookingModal';
 
 /**
- * 预订首页 - 房型展示、日期选择、床位选择
+ * 预订首页 - 房型展示、日期选择、床位选择、多人预订
  */
 export default function BookingPage() {
   const {
@@ -20,8 +20,9 @@ export default function BookingPage() {
     checkInDate,
     checkOutDate,
     genderFilter,
+    guestCount,
     selectedRoomId,
-    selectedBedId,
+    selectedBedIds,
     showBookingModal,
     bookingSuccess,
     successMessage,
@@ -29,8 +30,9 @@ export default function BookingPage() {
     setCheckInDate,
     setCheckOutDate,
     setGenderFilter,
+    setGuestCount,
     selectRoom,
-    selectBed,
+    toggleBed,
     openBookingModal,
     closeBookingModal,
     submitBooking,
@@ -45,9 +47,9 @@ export default function BookingPage() {
   // 筛选房间
   const filteredRooms = rooms.filter(r => roomMatchesFilter(r, genderFilter));
 
-  // 当前选中的房间和床位
+  // 当前选中的房间和床位列表
   const selectedRoom = rooms.find(r => r.id === selectedRoomId);
-  const selectedBed = beds.find(b => b.id === selectedBedId);
+  const selectedBeds = beds.filter(b => selectedBedIds.includes(b.id));
 
   // 入住晚数
   const nights = checkInDate && checkOutDate ? calculateNights(checkInDate, checkOutDate) : 0;
@@ -78,7 +80,7 @@ export default function BookingPage() {
             选择入住日期
           </h2>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
             {/* 入住日期 */}
             <div>
               <label className="block text-sm font-medium text-gray-600 mb-2">入住日期</label>
@@ -100,11 +102,54 @@ export default function BookingPage() {
                 className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-teal-500 focus:ring-2 focus:ring-teal-100 outline-none transition-all"
               />
             </div>
-            {/* 晚数显示 */}
+            {/* 入住人数 */}
+            <div>
+              <label className="block text-sm font-medium text-gray-600 mb-2">
+                <Users className="w-4 h-4 inline mr-1" />入住人数
+              </label>
+              <div className="flex items-center h-[50px]">
+                <button
+                  type="button"
+                  onClick={() => setGuestCount(guestCount - 1)}
+                  disabled={guestCount <= 1}
+                  className={`w-10 h-full rounded-l-xl border border-r-0 flex items-center justify-center transition-all ${
+                    guestCount <= 1
+                      ? 'bg-gray-100 text-gray-300 cursor-not-allowed border-gray-200'
+                      : 'bg-gray-50 text-gray-600 hover:bg-teal-50 hover:text-teal-600 border-gray-200'
+                  }`}
+                >
+                  <Minus className="w-4 h-4" />
+                </button>
+                <div className="flex-1 h-full border border-gray-200 flex items-center justify-center bg-white">
+                  <span className="text-xl font-bold text-teal-700 tabular-nums">{guestCount}</span>
+                  <span className="text-gray-500 ml-1">人</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setGuestCount(guestCount + 1)}
+                  disabled={guestCount >= 8}
+                  className={`w-10 h-full rounded-r-xl border border-l-0 flex items-center justify-center transition-all ${
+                    guestCount >= 8
+                      ? 'bg-gray-100 text-gray-300 cursor-not-allowed border-gray-200'
+                      : 'bg-gray-50 text-gray-600 hover:bg-teal-50 hover:text-teal-600 border-gray-200'
+                  }`}
+                >
+                  <Plus className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+            {/* 晚数和总价预览 */}
             <div className="flex items-end">
-              <div className="bg-teal-50 rounded-xl px-4 py-3 w-full text-center">
-                <span className="text-2xl font-bold text-teal-700">{nights}</span>
-                <span className="text-teal-600 ml-2">晚</span>
+              <div className="bg-gradient-to-r from-teal-50 to-orange-50 rounded-xl px-4 py-3 w-full text-center">
+                <div>
+                  <span className="text-2xl font-bold text-teal-700">{nights}</span>
+                  <span className="text-teal-600 ml-1">晚</span>
+                </div>
+                {selectedRoom && (
+                  <div className="text-sm text-orange-600 font-medium mt-0.5">
+                    约 ¥{selectedRoom.pricePerNight * nights * guestCount}
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -166,18 +211,19 @@ export default function BookingPage() {
             bookings={bookings}
             checkIn={checkInDate}
             checkOut={checkOutDate}
-            selectedBedId={selectedBedId}
-            onSelectBed={selectBed}
+            selectedBedIds={selectedBedIds}
+            guestCount={guestCount}
+            onToggleBed={toggleBed}
             onBook={openBookingModal}
           />
         )}
       </main>
 
       {/* 预订表单弹窗 */}
-      {showBookingModal && selectedRoom && selectedBed && (
+      {showBookingModal && selectedRoom && selectedBeds.length > 0 && (
         <BookingModal
           room={selectedRoom}
-          bed={selectedBed}
+          selectedBeds={selectedBeds}
           checkIn={checkInDate}
           checkOut={checkOutDate}
           onClose={closeBookingModal}
