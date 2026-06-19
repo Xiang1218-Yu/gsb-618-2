@@ -10,6 +10,7 @@ import { useHostelData, emitDataChange } from "@/hooks/useHostelData";
 import {
   addBookings,
   calcNights,
+  getRoomCurrentGender,
   isBedOccupied,
   makeId,
   todayStr,
@@ -24,6 +25,14 @@ import { autoMatch } from "@/lib/match";
 function filterRoomsByPreference(rooms: Room[], pref: GenderPreference): Room[] {
   if (pref === "any") return rooms;
   return rooms.filter((r) => r.genderType === pref);
+}
+
+/** 中国大陆手机号正则：1 开头，第二位 3-9，共 11 位 */
+const PHONE_REGEX = /^1[3-9]\d{9}$/;
+
+/** 校验手机号格式 */
+function isValidPhone(phone: string): boolean {
+  return PHONE_REGEX.test(phone.trim());
 }
 
 export default function Home() {
@@ -108,9 +117,68 @@ export default function Home() {
       alert("请选择有效的入住与离店日期");
       return;
     }
-    for (const g of guests.slice(0, guestCount)) {
-      if (!g.name.trim() || !g.phone.trim()) {
-        alert("请填写每位入住人的姓名与手机号");
+    // 基础字段非空 + 手机号格式校验
+    for (let i = 0; i < guestCount; i++) {
+      const g = guests[i];
+      if (!g.name.trim()) {
+        alert(`请填写第 ${i + 1} 位入住人的姓名`);
+        return;
+      }
+      if (!g.phone.trim()) {
+        alert(`请填写第 ${i + 1} 位入住人的手机号`);
+        return;
+      }
+      if (!isValidPhone(g.phone)) {
+        alert(`第 ${i + 1} 位入住人的手机号格式不正确（应为 11 位、以 1 开头）`);
+        return;
+      }
+    }
+
+    // 房型与性别匹配校验
+    // 1) 男生间：所有入住人必须为男；女生间：所有入住人必须为女
+    // 2) 混住房：本次入住人的性别必须一致；若房间已有占用，还需与已入住性别一致
+    for (let i = 0; i < guestCount; i++) {
+      const bedId = selectedBedIds[i];
+      const guest = guests[i];
+      const bed = beds.find((b) => b.id === bedId);
+      const room = bed && rooms.find((r) => r.id === bed.roomId);
+      if (!bed || !room) {
+        alert("床位信息异常，请重新选择");
+        return;
+      }
+      if (room.genderType === "male" && guest.gender !== "male") {
+        alert(`【${room.name}】为男生间，第 ${i + 1} 位入住人性别不匹配`);
+        return;
+      }
+      if (room.genderType === "female" && guest.gender !== "female") {
+        alert(`【${room.name}】为女生间，第 ${i + 1} 位入住人性别不匹配`);
+        return;
+      }
+    }
+
+    // 混住房整体性别一致性校验：同一间混住房内，本次预订的入住人性别必须一致，
+    // 并需与该房间已入住客人性别一致（若有）
+    const groupedByRoom = new Map<string, number[]>();
+    for (let i = 0; i < guestCount; i++) {
+      const bed = beds.find((b) => b.id === selectedBedIds[i]);
+      if (!bed) continue;
+      const list = groupedByRoom.get(bed.roomId) ?? [];
+      list.push(i);
+      groupedByRoom.set(bed.roomId, list);
+    }
+    for (const [roomId, idxList] of groupedByRoom) {
+      const room = rooms.find((r) => r.id === roomId);
+      if (!room || room.genderType !== "mixed") continue;
+      const genders = new Set(idxList.map((i) => guests[i].gender));
+      if (genders.size > 1) {
+        alert(`【${room.name}】为混住房，本次同房间入住人性别需保持一致`);
+        return;
+      }
+      // 与房间已入住性别比对
+      const existing = getRoomCurrentGender(room, checkIn, checkOut, beds, bookings);
+      const incoming = guests[idxList[0]].gender;
+      if (existing && existing !== incoming) {
+        alert(`【${room.name}】当前已有${existing === "male" ? "男士" : "女士"}入住，无法混入不同性别`);
         return;
       }
     }

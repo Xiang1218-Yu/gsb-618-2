@@ -115,9 +115,17 @@ export default function BookingPanel({
                 </select>
                 <input
                   className="px-3 py-2 rounded-lg border border-forest-100 text-sm focus:outline-none focus:border-forest-300"
-                  placeholder="手机号"
+                  placeholder="手机号（11位）"
+                  inputMode="numeric"
+                  maxLength={11}
                   value={guests[idx]?.phone ?? ""}
-                  onChange={(e) => onUpdateGuest(idx, { ...(guests[idx] ?? { name: "", gender: "male", phone: "" }), phone: e.target.value })}
+                  onChange={(e) =>
+                    onUpdateGuest(idx, {
+                      ...(guests[idx] ?? { name: "", gender: "male", phone: "" }),
+                      // 仅保留数字字符，最多 11 位
+                      phone: e.target.value.replace(/\D/g, "").slice(0, 11),
+                    })
+                  }
                 />
               </div>
             </div>
